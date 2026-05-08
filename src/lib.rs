@@ -141,6 +141,11 @@ pub struct Capture<V: VideoEncoder + Send> {
 
     audio_encoder: Option<Arc<Mutex<dyn AudioEncoder + Send>>>,
     pw_audio_terminate_tx: Option<pipewire::channel::Sender<Terminate>>,
+
+    /// Restore token returned by the XDG portal after a successful session start.
+    /// Save this and pass it to [`CaptureBuilder::with_restore_token`] on subsequent launches
+    /// to skip the screen-recording permission prompt.
+    pub restore_token: Option<String>,
 }
 
 /// Controls for the capture, allows you to pause/resume processing
@@ -227,9 +232,12 @@ impl<V: VideoEncoder + PipewireSPA + StartVideoEncoder> Capture<V> {
             audio_encoder: None,
             pw_video_terminate_tx: None,
             pw_audio_terminate_tx: None,
+            restore_token: None,
         };
 
-        let (frame_rx, ready_state, _) = _self.start_pipewire_video(include_cursor)?;
+        let (frame_rx, ready_state, _, restore_token) =
+            _self.start_pipewire_video(include_cursor, None)?;
+        _self.restore_token = restore_token;
 
         std::thread::sleep(Duration::from_millis(100));
         ready_state.audio.store(true, Ordering::Release);
@@ -243,10 +251,12 @@ impl<V: VideoEncoder + PipewireSPA + StartVideoEncoder> Capture<V> {
         Ok(_self)
     }
 
+    #[allow(clippy::type_complexity)]
     fn start_pipewire_video(
         &mut self,
         include_cursor: bool,
-    ) -> Result<(Receiver<RawVideoFrame>, Arc<ReadyState>, Resolution)> {
+        restore_token: Option<String>,
+    ) -> Result<(Receiver<RawVideoFrame>, Arc<ReadyState>, Resolution, Option<String>)> {
         let (frame_tx, frame_rx): (Sender<RawVideoFrame>, Receiver<RawVideoFrame>) = bounded(10);
 
         let ready_state = Arc::new(ReadyState::default());
@@ -264,7 +274,11 @@ impl<V: VideoEncoder + PipewireSPA + StartVideoEncoder> Capture<V> {
         } else {
             CursorMode::HIDDEN
         });
+        if let Some(token) = restore_token {
+            screen_cast.set_restore_token(token);
+        }
         let active_cast = screen_cast.start(None)?;
+        let new_restore_token = active_cast.restore_token().map(|s| s.to_owned());
         let fd = active_cast.pipewire_fd();
         let stream = active_cast.streams().next().unwrap();
         let stream_node = stream.pipewire_node();
@@ -313,7 +327,7 @@ impl<V: VideoEncoder + PipewireSPA + StartVideoEncoder> Capture<V> {
             std::thread::sleep(Duration::from_millis(100));
         };
 
-        Ok((frame_rx, ready_state, resolution))
+        Ok((frame_rx, ready_state, resolution, new_restore_token))
     }
 
     fn start_pipewire_audio(
@@ -422,6 +436,7 @@ impl Capture<DynamicEncoder> {
         include_cursor: bool,
         include_audio: bool,
         target_fps: u64,
+        restore_token: Option<String>,
     ) -> Result<Self> {
         let mut _self = Self {
             controls: Arc::new(CaptureControls::from_fps(target_fps)),
@@ -430,9 +445,12 @@ impl Capture<DynamicEncoder> {
             audio_encoder: None,
             pw_video_terminate_tx: None,
             pw_audio_terminate_tx: None,
+            restore_token: None,
         };
 
-        let (frame_rx, ready_state, resolution) = _self.start_pipewire_video(include_cursor)?;
+        let (frame_rx, ready_state, resolution, new_restore_token) =
+            _self.start_pipewire_video(include_cursor, restore_token)?;
+        _self.restore_token = new_restore_token;
 
         _self.video_encoder = Some(Arc::new(Mutex::new(DynamicEncoder::new(
             video_encoder_type,
