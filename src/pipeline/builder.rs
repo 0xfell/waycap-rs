@@ -14,6 +14,7 @@ pub struct CaptureBuilder {
     include_cursor: bool,
     include_audio: bool,
     target_fps: u64,
+    restore_token: Option<String>,
 }
 
 impl Default for CaptureBuilder {
@@ -31,6 +32,7 @@ impl CaptureBuilder {
             include_cursor: false,
             include_audio: false,
             target_fps: 60,
+            restore_token: None,
         }
     }
 
@@ -70,6 +72,14 @@ impl CaptureBuilder {
         self
     }
 
+    /// Optional: Provide a restore token from a previous session to skip the
+    /// screen-recording permission prompt. Retrieve the token after a successful
+    /// build via [`crate::Capture::restore_token`].
+    pub fn with_restore_token(mut self, token: String) -> Self {
+        self.restore_token = Some(token);
+        self
+    }
+
     pub fn build(self) -> Result<Capture<DynamicEncoder>> {
         let quality = match self.quality_preset {
             Some(qual) => qual,
@@ -92,6 +102,7 @@ impl CaptureBuilder {
             self.include_cursor,
             self.include_audio,
             self.target_fps,
+            self.restore_token,
         )
     }
 }

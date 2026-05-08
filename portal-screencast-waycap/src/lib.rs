@@ -95,6 +95,7 @@ pub struct ScreenCast {
     multiple: bool,
     source_types: Option<SourceType>,
     cursor_mode: Option<CursorMode>,
+    restore_token: Option<String>,
 }
 
 impl ScreenCast {
@@ -133,6 +134,7 @@ impl ScreenCast {
             multiple: false,
             source_types: None,
             cursor_mode: None,
+            restore_token: None,
         })
     }
 
@@ -160,9 +162,16 @@ impl ScreenCast {
         self.multiple = true;
     }
 
+    /// Set a restore token from a previous session. When provided, the portal
+    /// will skip the permission prompt and go straight to source selection.
+    /// The token is obtained from [`ActiveScreenCast::restore_token`] after a successful start.
+    pub fn set_restore_token(&mut self, token: String) {
+        self.restore_token = Some(token);
+    }
+
     /// Try to start the screen cast. This will prompt the user to select a
     /// source to share.
-    pub fn start(self, parent_window: Option<&str>) -> Result<ActiveScreenCast, PortalError> {
+    pub fn start(mut self, parent_window: Option<&str>) -> Result<ActiveScreenCast, PortalError> {
         let desktop_proxy = self.state.desktop_proxy();
 
         {
@@ -188,17 +197,23 @@ impl ScreenCast {
                     None => CursorMode::HIDDEN.bits(),
                 })),
             );
+            // Always request persistence so the portal returns a token we can reuse.
+            // 2 = persist until explicitly revoked (survives app restarts).
+            select_args.insert("persist_mode".into(), Variant(Box::new(2u32)));
+            if let Some(token) = self.restore_token.take() {
+                select_args.insert("restore_token".into(), Variant(Box::new(token)));
+            }
 
             desktop_proxy.select_sources(session, select_args)?;
             request.wait_response()?;
         }
 
-        let streams = {
+        let (streams, restore_token) = {
             let request = Request::with_handler(&self.state, |response| {
                 if response.response != 0 {
                     return Err(PortalError::Cancelled);
                 }
-                match response.results.get("streams") {
+                let streams = match response.results.get("streams") {
                     Some(streams) => match streams.as_iter() {
                         Some(streams) => streams
                             .flat_map(|s| {
@@ -210,7 +225,13 @@ impl ScreenCast {
                         None => Err(PortalError::Parse),
                     },
                     None => Err(PortalError::Parse),
-                }
+                }?;
+                let restore_token = response
+                    .results
+                    .get("restore_token")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_owned());
+                Ok((streams, restore_token))
             })?;
             let session = dbus::Path::from(&self.session);
             let mut select_args = HashMap::<String, Variant<Box<dyn RefArg>>>::new();
@@ -230,6 +251,7 @@ impl ScreenCast {
             session_path: self.session,
             pipewire_fd,
             streams,
+            restore_token,
         })
     }
 }
@@ -241,6 +263,7 @@ pub struct ActiveScreenCast {
     session_path: String,
     pipewire_fd: OwnedFd,
     streams: Vec<ScreenCastStream>,
+    restore_token: Option<String>,
 }
 
 impl ActiveScreenCast {
@@ -252,6 +275,14 @@ impl ActiveScreenCast {
     /// Get the streams active in this ScreenCast.
     pub fn streams(&self) -> impl Iterator<Item = &ScreenCastStream> {
         self.streams.iter()
+    }
+
+    /// Get the restore token for this session, if the portal provided one.
+    ///
+    /// Save this token and pass it to [`ScreenCast::set_restore_token`] on the
+    /// next launch to skip the permission prompt.
+    pub fn restore_token(&self) -> Option<&str> {
+        self.restore_token.as_deref()
     }
 
     /// Close the ScreenCast session. This ends the cast.

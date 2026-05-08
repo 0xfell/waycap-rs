@@ -90,3 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - At least one of `vaapi` or `nvidia` must be enabled or the build will fail
 - `vulkan` and `egl` are mutually exclusive
 - `nvidia` requires either `vulkan` or `egl`
+
+### Added
+- XDG portal restore token support — on subsequent launches the screen-recording permission prompt is skipped
+  - `CaptureBuilder::with_restore_token(token)` — pass a token saved from a previous session
+  - `Capture::restore_token` — read the token returned by the portal after a successful start and persist it for next time
