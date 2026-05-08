@@ -49,8 +49,9 @@ waycap-rs = { version = "3.0.0", features = ["nvidia", "vulkan"] }
 
 ## Example Usage
 ```rust
-use waycap_rs::{CaptureBuilder, QualityPreset, VideoEncoder, AudioEncoder};
 use std::{thread, time::Duration};
+use waycap_rs::pipeline::builder::CaptureBuilder;
+use waycap_rs::types::config::{AudioEncoder, QualityPreset, VideoEncoder};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a capture session
