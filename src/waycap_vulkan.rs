@@ -1,15 +1,19 @@
+use crate::types::error::Result;
+
+use ash::{Entry, Instance};
+use ash::vk;
+
+#[cfg(feature = "nvidia")]
 use std::{ffi::c_void, os::unix::io::RawFd};
+#[cfg(feature = "nvidia")]
+use ash::{ext, khr, Device};
+#[cfg(feature = "nvidia")]
+use crate::types::video_frame::DmaBufPlane;
 
-use ash::{
-    ext, khr,
-    vk::{self},
-    Device, Entry, Instance,
-};
-
-use crate::types::{error::Result, video_frame::DmaBufPlane};
-
+#[cfg(feature = "nvidia")]
 const DRM_FORMAT_MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
 
+#[cfg(feature = "vaapi")]
 #[derive(Clone, Copy)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum GpuVendor {
@@ -19,6 +23,7 @@ pub enum GpuVendor {
     UNKNOWN,
 }
 
+#[cfg(feature = "vaapi")]
 impl GpuVendor {
     fn from_vendor_id(id: u32) -> Self {
         match id {
@@ -33,6 +38,7 @@ impl GpuVendor {
     }
 }
 
+#[cfg(feature = "vaapi")]
 pub fn detect_gpu_vendor() -> Result<GpuVendor> {
     let entry = unsafe { Entry::load() }.map_err(|e| format!("Failed to load Vulkan: {e}"))?;
 
